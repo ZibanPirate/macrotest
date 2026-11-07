@@ -59,6 +59,24 @@ pub fn expand(path: impl AsRef<Path>) {
         path,
         ExpansionBehavior::RegenerateFiles,
         Option::<Vec<String>>::None,
+        None,
+    );
+}
+
+/// Same as [`expand`], but strips `source_suffix` from each test file name
+/// before deriving the `.expanded.rs` snapshot path.
+///
+/// This keeps fixtures and their snapshots adjacent in sorted order: with
+/// `source_suffix` set to `".before"`, `case.before.rs` is compared against
+/// `case.expanded.rs`.
+///
+/// [`expand`]: expand/fn.expand.html
+pub fn expand_with_source_suffix(path: impl AsRef<Path>, source_suffix: &str) {
+    run_tests(
+        path,
+        ExpansionBehavior::RegenerateFiles,
+        Option::<Vec<String>>::None,
+        Some(source_suffix),
     );
 }
 
@@ -70,7 +88,7 @@ where
     I: IntoIterator<Item = S> + Clone,
     S: AsRef<OsStr>,
 {
-    run_tests(path, ExpansionBehavior::RegenerateFiles, Some(args));
+    run_tests(path, ExpansionBehavior::RegenerateFiles, Some(args), None);
 }
 
 /// Attempts to expand macros in files that match glob pattern.
@@ -91,6 +109,7 @@ pub fn expand_without_refresh(path: impl AsRef<Path>) {
         path,
         ExpansionBehavior::ExpectFiles,
         Option::<Vec<String>>::None,
+        None,
     );
 }
 
@@ -102,7 +121,7 @@ where
     I: IntoIterator<Item = S> + Clone,
     S: AsRef<OsStr>,
 {
-    run_tests(path, ExpansionBehavior::ExpectFiles, Some(args));
+    run_tests(path, ExpansionBehavior::ExpectFiles, Some(args), None);
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -111,12 +130,16 @@ enum ExpansionBehavior {
     ExpectFiles,
 }
 
-fn run_tests<I, S>(path: impl AsRef<Path>, expansion_behavior: ExpansionBehavior, args: Option<I>)
-where
+fn run_tests<I, S>(
+    path: impl AsRef<Path>,
+    expansion_behavior: ExpansionBehavior,
+    args: Option<I>,
+    source_suffix: Option<&str>,
+) where
     I: IntoIterator<Item = S> + Clone,
     S: AsRef<OsStr>,
 {
-    let tests = expand_globs(&path)
+    let tests = expand_globs(&path, source_suffix)
         .into_iter()
         .filter(|t| !t.test.to_string_lossy().ends_with(EXPANDED_RS_SUFFIX))
         .collect::<Vec<_>>();
@@ -131,7 +154,7 @@ where
     let mut failures = 0;
     for test in tests {
         let path = test.test.display();
-        let expanded_path = test.test.with_extension(EXPANDED_RS_SUFFIX);
+        let expanded_path = &test.snapshot;
 
         match test.run(&project, expansion_behavior, &args) {
             Ok(outcome) => match outcome {
@@ -345,6 +368,7 @@ enum ExpansionOutcome {
 struct ExpandedTest {
     name: Name,
     test: PathBuf,
+    snapshot: PathBuf,
     error: Option<Error>,
 }
 
@@ -365,17 +389,8 @@ impl ExpandedTest {
             return Ok(ExpansionOutcome::ExpandError(output_bytes));
         }
 
-        let file_stem = self
-            .test
-            .file_stem()
-            .expect("no file stem")
-            .to_string_lossy()
-            .into_owned();
-        let mut expanded = self.test.clone();
-        expanded.pop();
-        let expanded = &expanded.join(format!("{}.{}", file_stem, EXPANDED_RS_SUFFIX));
-
         let output = normalize_expansion(&output_bytes);
+        let expanded = &self.snapshot;
 
         if !expanded.exists() {
             if let ExpansionBehavior::ExpectFiles = expansion_behavior {
@@ -470,7 +485,22 @@ fn normalize_expansion(input: &[u8]) -> String {
     prettyplease::unparse(&syntax_tree)
 }
 
-fn expand_globs(path: impl AsRef<Path>) -> Vec<ExpandedTest> {
+fn snapshot_path(test: &Path, source_suffix: Option<&str>) -> PathBuf {
+    let file_stem = test
+        .file_stem()
+        .expect("no file stem")
+        .to_string_lossy()
+        .into_owned();
+    let file_stem = source_suffix
+        .and_then(|suffix| file_stem.strip_suffix(suffix))
+        .unwrap_or(&file_stem);
+
+    let mut snapshot = test.to_path_buf();
+    snapshot.pop();
+    snapshot.join(format!("{}.{}", file_stem, EXPANDED_RS_SUFFIX))
+}
+
+fn expand_globs(path: impl AsRef<Path>, source_suffix: Option<&str>) -> Vec<ExpandedTest> {
     fn glob(pattern: &str) -> Result<Vec<PathBuf>> {
         let mut paths = glob::glob(pattern)?
             .map(|entry| entry.map_err(Error::from))
@@ -494,6 +524,7 @@ fn expand_globs(path: impl AsRef<Path>) -> Vec<ExpandedTest> {
     let mut expanded = ExpandedTest {
         name: Name(name),
         test: path.as_ref().to_path_buf(),
+        snapshot: snapshot_path(path.as_ref(), source_suffix),
         error: None,
     };
 
@@ -504,6 +535,7 @@ fn expand_globs(path: impl AsRef<Path>) -> Vec<ExpandedTest> {
                     for path in paths {
                         vec.push(ExpandedTest {
                             name: bin_name(vec.len()),
+                            snapshot: snapshot_path(&path, source_suffix),
                             test: path,
                             error: None,
                         });

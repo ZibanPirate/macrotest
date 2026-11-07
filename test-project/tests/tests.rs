@@ -22,6 +22,11 @@ pub fn pass_args() {
 }
 
 #[test]
+pub fn pass_source_suffix() {
+    macrotest::expand_with_source_suffix("tests/expand_before/*.before.rs", ".before");
+}
+
+#[test]
 pub fn pass_expect_expanded_args() {
     // If you delete one of the `.expanded.rs` files, this test will fail.
     macrotest::expand_args("tests/expand_args/*.rs", &["--features", "test-feature"]);

@@ -67,6 +67,21 @@
 //! cargo expand --bin <test-name> --theme none --features my-feature
 //! ```
 //!
+//! ## Custom source file suffixes
+//!
+//! [`expand_with_source_suffix`] strips a suffix from each test file name before
+//! deriving the `.expanded.rs` path. This keeps fixtures and snapshots adjacent
+//! in sorted order:
+//!
+//! ```rust
+//! pub fn pass() {
+//!     macrotest::expand_with_source_suffix("tests/expand/*.before.rs", ".before");
+//! }
+//! ```
+//!
+//! With this setup `tests/expand/case.before.rs` is compared against
+//! `tests/expand/case.expanded.rs`.
+//!
 //! # Workflow
 //!
 //! First of all, the [`cargo expand`] tool must be present. You can install it via cargo:
@@ -126,6 +141,7 @@
 //! [`expand_without_refresh_args`]: expand/fn.expand_without_refresh_args.html
 //! [`expand`]: expand/fn.expand.html
 //! [`expand_args`]: expand/fn.expand_args.html
+//! [`expand_with_source_suffix`]: expand/fn.expand_with_source_suffix.html
 //! [trybuild]: https://github.com/dtolnay/trybuild
 //! [`cargo expand`]: https://github.com/dtolnay/cargo-expand
 
@@ -145,5 +161,6 @@ mod rustflags;
 
 pub use expand::expand;
 pub use expand::expand_args;
+pub use expand::expand_with_source_suffix;
 pub use expand::expand_without_refresh;
 pub use expand::expand_without_refresh_args;
